@@ -1,0 +1,6 @@
+C:\Users\IoD\Desktop\Workspace\PCANManager\PCANManager\bin\Debug\PCANManager.dll
+C:\Users\IoD\Desktop\Workspace\PCANManager\PCANManager\bin\Debug\PCANManager.pdb
+C:\Users\IoD\Desktop\Workspace\PCANManager\PCANManager\obj\Debug\PCANManager.csproj.CoreCompileInputs.cache
+C:\Users\IoD\Desktop\Workspace\PCANManager\PCANManager\obj\Debug\PCANManager.dll
+C:\Users\IoD\Desktop\Workspace\PCANManager\PCANManager\obj\Debug\PCANManager.pdb
+C:\Users\IoD\Desktop\Workspace\PCANManager\PCANManager\bin\Debug\PCANBasic.dll
