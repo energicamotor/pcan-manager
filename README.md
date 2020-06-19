@@ -1,7 +1,11 @@
-# pcan-manager
+# PCAN-Manager (PCANDevice Package)
 ![Build history](https://buildstats.info/nuget/PCANDevice)
 
 PeakCAN USB device helper class for C#
+
+## Install package
+
+Search for ```PCANDevice``` Package 
 
 ## How to use this nuget package?
 
@@ -41,3 +45,7 @@ namespace ConsoleApp
     }
 }
 ```
+
+## Contributing
+
+Feedback is welcome and pull requests get accepted.
