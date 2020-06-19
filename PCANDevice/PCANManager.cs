@@ -6,9 +6,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PCANManager
+namespace PCANDevice
 {
-
     public class StatusChanged : EventArgs
     {
         public bool status { get; set; }
@@ -21,10 +20,10 @@ namespace PCANManager
         Error = 0xff
     };
 
-   
+
     public delegate int PCANCallback(object[] args);
 
-    
+
 
     public class PCANManager
     {
@@ -48,7 +47,6 @@ namespace PCANManager
         {
             Disconnected?.Invoke(this, e);
         }
-
 
         private static ushort[] m_HandlesArray = new ushort[]
         {
@@ -149,7 +147,7 @@ namespace PCANManager
             lock (thread_lock)
             {
                 stsResult = PCANBasic.Initialize(handle, baud);
-                stsResult = PCANBasic.FilterMessages(handle, 0x00, 0x7ff, TPCANMode.PCAN_MODE_STANDARD);
+                stsResult = PCANBasic.FilterMessages(handle, 0x000, 0x1FFFFFFF, TPCANMode.PCAN_MODE_EXTENDED);
                 device = stsResult == TPCANStatus.PCAN_ERROR_OK ? handle : (ushort)0x00;
             }
             OnConnect(new StatusChanged() { status = true });
@@ -164,7 +162,7 @@ namespace PCANManager
                 lock (thread_lock)
                 {
                     stsResult = PCANBasic.Initialize(handle, baud);
-                    stsResult = PCANBasic.FilterMessages(handle, (uint)filterLow, (uint)filterHigh, TPCANMode.PCAN_MODE_STANDARD);
+                    stsResult = PCANBasic.FilterMessages(handle, (uint)filterLow, (uint)filterHigh, TPCANMode.PCAN_MODE_EXTENDED);
                     device = stsResult == TPCANStatus.PCAN_ERROR_OK ? handle : (ushort)0x00;
                 }
                 OnConnect(new StatusChanged() { status = true });
@@ -196,6 +194,9 @@ namespace PCANManager
                 return PCANStatus.Error;
             }
         }
+        TPCANMsg _CANMsg = new TPCANMsg() { MSGTYPE = TPCANMessageType.PCAN_MESSAGE_STANDARD };
+        TPCANMsg _CANMsgExt = new TPCANMsg() { MSGTYPE = TPCANMessageType.PCAN_MESSAGE_EXTENDED };
+        byte[] tmp = new byte[8];
 
         public PCANStatus SendFrame(int canID, int DLC, byte[] data)
         {
@@ -207,13 +208,15 @@ namespace PCANManager
                     tmp[i] = data[i];
 
 
-                TPCANMsg CANMsg = new TPCANMsg() { ID = (uint)canID, MSGTYPE = TPCANMessageType.PCAN_MESSAGE_STANDARD, LEN = (byte)DLC, DATA = tmp };
+                _CANMsg.ID = (uint)canID;
+                _CANMsg.LEN = (byte)DLC;
+                _CANMsg.DATA = tmp;
 
                 lock (thread_lock)
                 {
-                    stsResult = PCANBasic.Write(device, ref CANMsg);
+                    stsResult = PCANBasic.Write(device, ref _CANMsg);
                 }
-                
+
                 return stsResult == TPCANStatus.PCAN_ERROR_OK ? PCANStatus.OK : PCANStatus.Error;
             }
             catch (Exception)
@@ -221,7 +224,32 @@ namespace PCANManager
                 return PCANStatus.Error;
             }
         }
+        public PCANStatus SendFrameExt(int canID, int DLC, byte[] data)
+        {
+            TPCANStatus stsResult = TPCANStatus.PCAN_ERROR_UNKNOWN;
+            try
+            {
+                byte[] tmp = new byte[8];
+                for (int i = 0; i < data.Length; i++)
+                    tmp[i] = data[i];
 
+
+                _CANMsgExt.ID = (uint)canID;
+                _CANMsgExt.LEN = (byte)DLC;
+                _CANMsgExt.DATA = tmp;
+
+                lock (thread_lock)
+                {
+                    stsResult = PCANBasic.Write(device, ref _CANMsgExt);
+                }
+
+                return stsResult == TPCANStatus.PCAN_ERROR_OK ? PCANStatus.OK : PCANStatus.Error;
+            }
+            catch (Exception)
+            {
+                return PCANStatus.Error;
+            }
+        }
         public PCANStatus RetrieveFrame(out TPCANMsg CANMsg, out TPCANTimestamp CANTimeStamp)
         {
             TPCANStatus stsResult = TPCANStatus.PCAN_ERROR_UNKNOWN;
@@ -235,7 +263,7 @@ namespace PCANManager
                     stsResult = PCANBasic.Read(device, out CANMsg, out CANTimeStamp);
                 }
 
-                return stsResult != TPCANStatus.PCAN_ERROR_QRCVEMPTY ? PCANStatus.OK : PCANStatus.Error;
+                return CANMsg.MSGTYPE == TPCANMessageType.PCAN_MESSAGE_STATUS ? PCANStatus.Error : (stsResult != TPCANStatus.PCAN_ERROR_QRCVEMPTY ? PCANStatus.OK : PCANStatus.Error);
             }
             catch (Exception)
             {
@@ -261,7 +289,7 @@ namespace PCANManager
 
             lock (thread_lock_callbacks)
             {
-                for (int i = 0; i < receiveCallbacks.Count(); i++)
+                for (int i = (receiveCallbacks.Count - 1); i >= 0; i--)
                     if (receiveCallbacks[i] == callback)
                     {
                         index_found = i;
@@ -276,7 +304,7 @@ namespace PCANManager
         public void ActivateAutoReceive()
         {
             InstanceCaller = new Thread(new ThreadStart(AutoReceive));
-            InstanceCaller.Priority = ThreadPriority.Normal;
+            InstanceCaller.Priority = ThreadPriority.AboveNormal;
             autoReceiveStatus = true;
             InstanceCaller.Start();
         }
@@ -284,17 +312,6 @@ namespace PCANManager
         public void DeactivateAutoReceive()
         {
             autoReceiveStatus = false;
-        }
-
-        private static void NOP(double durationSeconds)
-        {
-            var durationTicks = Math.Round(durationSeconds * Stopwatch.Frequency);
-            var sw = Stopwatch.StartNew();
-
-            while (sw.ElapsedTicks < durationTicks)
-            {
-
-            }
         }
 
         private void AutoReceive()
@@ -317,19 +334,19 @@ namespace PCANManager
                     {
                         try
                         {
-                            for (int i = 0; i < receiveCallbacks.Count; i++)
+                            for (int i = (receiveCallbacks.Count - 1); i >= 0; i--)
                                 if (receiveCallbacks[i](new object[] { msg, timestamp }) != 0x00)
                                     toRemoveCallbacks.Add(receiveCallbacks[i]);
 
                             if (toRemoveCallbacks.Count != 0)
                             {
-                                for (int i = 0; i < toRemoveCallbacks.Count; i++)
+                                for (int i = (toRemoveCallbacks.Count - 1); i >= 0; i--)
                                     receiveCallbacks.Remove(toRemoveCallbacks[i]);
 
                                 toRemoveCallbacks.Clear();
                             }
                         }
-                        catch(Exception)
+                        catch (Exception)
                         {
 
                         }

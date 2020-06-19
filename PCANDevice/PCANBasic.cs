@@ -1,12 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 
-namespace PCANManager
+namespace PCANDevice
 {
     using TPCANHandle = System.UInt16;
     using TPCANBitrateFD = System.String;
@@ -120,6 +116,10 @@ namespace PCANManager
         /// </summary>
         PCAN_ERROR_ILLDATA = 0x20000,
         /// <summary>
+        /// Driver object state is wrong for the attempted operation
+        /// </summary>
+        PCAN_ERROR_ILLMODE = 0x80000,
+        /// <summary>
         /// An operation was successfully carried out, however, irregularities were registered
         /// </summary>
         PCAN_ERROR_CAUTION = 0x2000000,
@@ -145,7 +145,7 @@ namespace PCANManager
         /// </summary>
         PCAN_NONE = 0,
         /// <summary>
-        /// PCAN Non-Plug and Play devices. NOT USED WITHIN PCAN-Basic API
+        /// PCAN Non-PnP devices. NOT USED WITHIN PCAN-Basic API
         /// </summary>
         PCAN_PEAKCAN = 1,
         /// <summary>
@@ -184,11 +184,16 @@ namespace PCANManager
     public enum TPCANParameter : byte
     {
         /// <summary>
-        /// PCAN-USB device number parameter
+        /// Device identifier parameter
         /// </summary>
-        PCAN_DEVICE_NUMBER = 1,
+        PCAN_DEVICE_ID = 1,
         /// <summary>
-        /// PCAN-PC Card 5-Volt power parameter
+        /// DEPRECATED parameter. Use PCAN_DEVICE_ID instead
+        /// </summary>
+        [Obsolete]
+        PCAN_DEVICE_NUMBER = PCAN_DEVICE_ID,
+        /// <summary>
+        /// 5-Volt power parameter
         /// </summary>
         PCAN_5VOLTS_POWER = 2,
         /// <summary>
@@ -343,6 +348,18 @@ namespace PCANManager
         /// Get value of a single analog input pin
         /// </summary>
         PCAN_IO_ANALOG_VALUE = 40,
+        /// <summary>
+        /// Get the version of the firmware used by the device associated with a PCAN-Channel
+        /// </summary>
+        PCAN_FIRMWARE_VERSION = 41,
+        /// <summary>
+        /// Get the amount of PCAN channels attached to a system
+        /// </summary>
+        PCAN_ATTACHED_CHANNELS_COUNT = 42,
+        /// <summary>
+        /// Get information about PCAN channels attached to a system
+        /// </summary>
+        PCAN_ATTACHED_CHANNELS = 43,
     }
 
     /// <summary>
@@ -464,7 +481,7 @@ namespace PCANManager
     }
 
     /// <summary>
-    /// Represents the type of PCAN (non plug and play) hardware to be initialized
+    /// Represents the type of PCAN (Non-PnP) hardware to be initialized
     /// </summary>
     public enum TPCANType : byte
     {
@@ -568,6 +585,44 @@ namespace PCANManager
         /// </summary>
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)]
         public byte[] DATA;
+    }
+
+    /// <summary>
+    /// Describes an available PCAN channel
+    /// </summary>
+    public struct TPCANChannelInformation
+    {
+        /// <summary>
+        /// PCAN channel handle
+        /// </summary>
+        [MarshalAs(UnmanagedType.U2)]
+        public TPCANHandle channel_handle;
+        /// <summary>
+        /// Kind of PCAN device
+        /// </summary>
+        [MarshalAs(UnmanagedType.U1)]
+        public TPCANDevice device_type;
+        /// <summary>
+        /// CAN-Controller number
+        /// </summary>
+        public byte controller_number;
+        /// <summary>
+        /// Device capabilities flag (see FEATURE_*)
+        /// </summary>
+        public uint device_features;
+        /// <summary>
+        /// Device name
+        /// </summary>
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = PCANBasic.MAX_LENGTH_HARDWARE_NAME)]
+        public string device_name;
+        /// <summary>
+        /// Device number
+        /// </summary>
+        public uint device_id;
+        /// <summary>
+        /// Availability status of a PCAN-Channel
+        /// </summary>
+        public uint channel_condition;
     }
     #endregion
 
@@ -904,7 +959,7 @@ namespace PCANManager
         /// </summary>
         public const int PCAN_CHANNEL_UNAVAILABLE = 0;
         /// <summary>
-        /// The PCAN-Channel handle is available to be connected (Plug and Play Hardware: it means furthermore that the hardware is plugged-in)
+        /// The PCAN-Channel handle is available to be connected (PnP Hardware: it means furthermore that the hardware is plugged-in)
         /// </summary>
         public const int PCAN_CHANNEL_AVAILABLE = 1;
         /// <summary>
@@ -989,15 +1044,26 @@ namespace PCANManager
         public const int SERVICE_STATUS_RUNNING = 0x04;
         #endregion
 
+        #region Other Constants
+        /// <summary>
+        /// Maximum length of the name of a device: 32 characters + terminator
+        /// </summary>
+        public const int MAX_LENGTH_HARDWARE_NAME = 33;
+        /// <summary>
+        /// Maximum length of a version string: 17 characters + terminator
+        /// </summary>
+        public const int MAX_LENGTH_VERSION_STRING = 18;
+        #endregion
+
         #region PCANBasic API Implementation
         /// <summary>
         /// Initializes a PCAN Channel 
         /// </summary>
         /// <param name="Channel">The handle of a PCAN Channel</param>
         /// <param name="Btr0Btr1">The speed for the communication (BTR0BTR1 code)</param>
-        /// <param name="HwType">NON PLUG and PLAY: The type of hardware and operation mode</param>
-        /// <param name="IOPort">NON PLUG and PLAY: The I/O address for the parallel port</param>
-        /// <param name="Interrupt">NON PLUG and PLAY: Interrupt number of the parallel por</param>
+        /// <param name="HwType">Non-PnP: The type of hardware and operation mode</param>
+        /// <param name="IOPort">Non-PnP: The I/O address for the parallel port</param>
+        /// <param name="Interrupt">Non-PnP: Interrupt number of the parallel por</param>
         /// <returns>A TPCANStatus error code</returns>
         [DllImport("PCANBasic.dll", EntryPoint = "CAN_Initialize")]
         public static extern TPCANStatus Initialize(
@@ -1250,6 +1316,36 @@ namespace PCANManager
             TPCANParameter Parameter,
             out UInt64 NumericBuffer,
             UInt32 BufferLength);
+
+        [DllImport("PCANBasic.dll", EntryPoint = "CAN_GetValue")]
+        private static extern TPCANStatus GetValue(
+            [MarshalAs(UnmanagedType.U2)]
+            TPCANHandle Channel,
+            [MarshalAs(UnmanagedType.U1)]
+            TPCANParameter Parameter,
+            [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 3)]
+            [In, Out]TPCANChannelInformation[] ChannelsBuffer,
+            UInt32 BufferLength);
+
+        /// <summary>
+        /// Retrieves a PCAN Channel value
+        /// </summary>
+        /// <remarks>Parameters can be present or not according with the kind 
+        /// of Hardware (PCAN Channel) being used. If a parameter is not available,
+        /// a PCAN_ERROR_ILLPARAMTYPE error will be returned</remarks>
+        /// <param name="Channel">The handle of a PCAN Channel</param>
+        /// <param name="Parameter">The TPCANParameter parameter to get</param>
+        /// <param name="ChannelsBuffer">Buffer for the parameter value</param>
+        /// <returns>A TPCANStatus error code</returns>
+        public static TPCANStatus GetValue(
+            TPCANHandle Channel,
+            TPCANParameter Parameter,
+            TPCANChannelInformation[] ChannelsBuffer)
+        {
+            if (ChannelsBuffer == null)
+                return TPCANStatus.PCAN_ERROR_ILLPARAMVAL;
+            return GetValue(Channel, Parameter, ChannelsBuffer, (uint)(ChannelsBuffer.Length * Marshal.SizeOf(typeof(TPCANChannelInformation))));
+        }
 
         /// <summary>
         /// Configures or sets a PCAN Channel value 
