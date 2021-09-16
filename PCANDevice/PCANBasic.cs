@@ -1,4 +1,22 @@
-﻿using System;
+﻿//  PCANBasic.cs
+//
+//  ~~~~~~~~~~~~
+//
+//  PCAN-Basic API
+//
+//  ~~~~~~~~~~~~
+//
+//  ------------------------------------------------------------------
+//  Author : Keneth Wagner
+//	Last change: 15.10.2020 Wagner
+//
+//  Language: C# 1.0
+//  ------------------------------------------------------------------
+//
+//  Copyright (C) 1999-2020  PEAK-System Technik GmbH, Darmstadt
+//  more Info at http://www.peak-system.com 
+//
+using System;
 using System.Text;
 using System.Runtime.InteropServices;
 
@@ -1044,6 +1062,25 @@ namespace PCANDevice
         public const int SERVICE_STATUS_RUNNING = 0x04;
         #endregion
 
+        #region Lookup Parameters
+        /// <summary>
+        /// Lookup channel by Device type (see PCAN devices e.g. PCAN_USB)
+        /// </summary>
+        public const string LOOKUP_DEVICE_TYPE = "devicetype";
+        /// <summary>
+        /// Lookup channel by device id
+        /// </summary>
+        public const string LOOKUP_DEVICE_ID = "deviceid";
+        /// <summary>
+        /// Lookup channel by CAN controller 0-based index
+        /// </summary>
+        public const string LOOKUP_CONTROLLER_NUMBER = "controllernumber";
+        /// <summary>
+        /// Lookup channel by IP address (LAN channels only)
+        /// </summary>
+        public const string LOOKUP_IP_ADDRESS = "ipaddress";
+        #endregion
+
         #region Other Constants
         /// <summary>
         /// Maximum length of the name of a device: 32 characters + terminator
@@ -1425,6 +1462,20 @@ namespace PCANDevice
             TPCANStatus Error,
             UInt16 Language,
             StringBuilder StringBuffer);
+
+
+        /// <summary>
+        /// Finds a PCAN-Basic channel that matches with the given parameters
+        /// </summary>
+        /// <param name="Parameters">A comma separated string contained pairs of 
+        /// parameter-name/value to be matched within a PCAN-Basic channel</param>
+        /// <param name="FoundChannel">Buffer for returning the PCAN-Basic channel, 
+        /// when found</param>
+        /// <returns>A TPCANStatus error code</returns>
+        [DllImport("PCANBasic.dll", EntryPoint = "CAN_LookUpChannel")]
+        public static extern TPCANStatus LookUpChannel(
+            String Parameters,
+            out TPCANHandle FoundChannel);
         #endregion
     }
     #endregion

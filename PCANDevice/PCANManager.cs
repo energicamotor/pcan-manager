@@ -1,4 +1,22 @@
-﻿using System;
+﻿/*
+    PCAN Manager Library: more info at http://www.devcoons.com
+    Copyright (C) 2021 Ioannis Deligiannis | Devcoons Blog
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -8,11 +26,17 @@ using System.Threading.Tasks;
 
 namespace PCANDevice
 {
+    /// <summary>
+    /// Event data for OnConnect, OnDisconnect
+    /// </summary>
     public class StatusChanged : EventArgs
     {
         public bool status { get; set; }
     }
 
+    /// <summary>
+    /// Represents a generic PCAN status
+    /// </summary>
     public enum PCANStatus
     {
         OK = 0x00,
@@ -20,36 +44,29 @@ namespace PCANDevice
         Error = 0xff
     };
 
-
+    /// <summary>
+    /// Delegate of ReceiveCallback functions
+    /// </summary>
     public delegate int PCANCallback(object[] args);
 
-
-
+    /// <summary>
+    /// Abstraction Layer of PCANBasic 
+    /// </summary>
     public class PCANManager
     {
         public bool isConnected = false;
-
         public event EventHandler<StatusChanged> Connected;
         public event EventHandler<StatusChanged> Disconnected;
-
-        private ushort device = 0x00;
-
-        private Thread InstanceCaller;
-        private volatile bool autoReceiveStatus = false;
         public List<PCANCallback> receiveCallbacks = new List<PCANCallback>();
 
-        protected virtual void OnConnect(StatusChanged e)
-        {
-            Connected?.Invoke(this, e);
-        }
-
-        protected virtual void OnDisconnect(StatusChanged e)
-        {
-            Disconnected?.Invoke(this, e);
-        }
-
+        private ushort device = 0x00;
+        private Thread InstanceCaller;
+        private volatile bool autoReceiveStatus = false;
+        private volatile object thread_lock = new object();
+        private volatile object thread_send_lock = new object();
+        private volatile object thread_lock_callbacks = new object();
         private static ushort[] m_HandlesArray = new ushort[]
-        {
+{
                 PCANBasic.PCAN_ISABUS1,
                 PCANBasic.PCAN_ISABUS2,
                 PCANBasic.PCAN_ISABUS3,
@@ -109,11 +126,10 @@ namespace PCANDevice
                 PCANBasic.PCAN_LANBUS14,
                 PCANBasic.PCAN_LANBUS15,
                 PCANBasic.PCAN_LANBUS16,
-        };
-
-        private volatile object thread_lock = new object();
-        private volatile object thread_lock_callbacks = new object();
-
+};
+        private TPCANMsg _CANMsg = new TPCANMsg() { MSGTYPE = TPCANMessageType.PCAN_MESSAGE_STANDARD };
+        private TPCANMsg _CANMsgExt = new TPCANMsg() { MSGTYPE = TPCANMessageType.PCAN_MESSAGE_EXTENDED };
+      
         public static List<ushort> GetAllAvailable()
         {
             try
@@ -174,6 +190,16 @@ namespace PCANDevice
             }
         }
 
+        protected virtual void OnConnect(StatusChanged e)
+        {
+            Connected?.Invoke(this, e);
+        }
+
+        protected virtual void OnDisconnect(StatusChanged e)
+        {
+            Disconnected?.Invoke(this, e);
+        }
+
         public PCANStatus Disconnect()
         {
             TPCANStatus stsResult = TPCANStatus.PCAN_ERROR_UNKNOWN;
@@ -194,62 +220,75 @@ namespace PCANDevice
                 return PCANStatus.Error;
             }
         }
-        TPCANMsg _CANMsg = new TPCANMsg() { MSGTYPE = TPCANMessageType.PCAN_MESSAGE_STANDARD };
-        TPCANMsg _CANMsgExt = new TPCANMsg() { MSGTYPE = TPCANMessageType.PCAN_MESSAGE_EXTENDED };
-        byte[] tmp = new byte[8];
+
+        public int IsConnected()
+        {
+            return device;
+        }
 
         public PCANStatus SendFrame(int canID, int DLC, byte[] data)
         {
-            TPCANStatus stsResult = TPCANStatus.PCAN_ERROR_UNKNOWN;
-            try
+            lock (thread_send_lock)
             {
-                byte[] tmp = new byte[8];
-                for (int i = 0; i < data.Length; i++)
-                    tmp[i] = data[i];
-
-
-                _CANMsg.ID = (uint)canID;
-                _CANMsg.LEN = (byte)DLC;
-                _CANMsg.DATA = tmp;
-
-                lock (thread_lock)
+                Thread.SpinWait(6000);
+                TPCANStatus stsResult = TPCANStatus.PCAN_ERROR_UNKNOWN;
+                try
                 {
-                    stsResult = PCANBasic.Write(device, ref _CANMsg);
-                }
+                    byte[] tmp = new byte[8];
+                    for (int i = 0; i < data.Length; i++)
+                        tmp[i] = data[i];
 
-                return stsResult == TPCANStatus.PCAN_ERROR_OK ? PCANStatus.OK : PCANStatus.Error;
-            }
-            catch (Exception)
-            {
-                return PCANStatus.Error;
+
+                    _CANMsg.ID = (uint)canID;
+                    _CANMsg.LEN = (byte)DLC;
+                    _CANMsg.DATA = tmp;
+
+                    lock (thread_lock)
+                    {                    
+                        stsResult = PCANBasic.Write(device, ref _CANMsg);
+                    }
+                    Thread.SpinWait(100);
+                    return stsResult == TPCANStatus.PCAN_ERROR_OK ? PCANStatus.OK : PCANStatus.Error;
+                }
+                catch (Exception)
+                {
+                    Thread.SpinWait(6000);
+                    return PCANStatus.Error;
+                }
             }
         }
+
         public PCANStatus SendFrameExt(int canID, int DLC, byte[] data)
         {
-            TPCANStatus stsResult = TPCANStatus.PCAN_ERROR_UNKNOWN;
-            try
+            lock (thread_send_lock)
             {
-                byte[] tmp = new byte[8];
-                for (int i = 0; i < data.Length; i++)
-                    tmp[i] = data[i];
-
-
-                _CANMsgExt.ID = (uint)canID;
-                _CANMsgExt.LEN = (byte)DLC;
-                _CANMsgExt.DATA = tmp;
-
-                lock (thread_lock)
+                Thread.SpinWait(6000);
+                TPCANStatus stsResult = TPCANStatus.PCAN_ERROR_UNKNOWN;
+                try
                 {
-                    stsResult = PCANBasic.Write(device, ref _CANMsgExt);
-                }
+                    byte[] tmp = new byte[8];
+                    for (int i = 0; i < data.Length; i++)
+                        tmp[i] = data[i];
 
-                return stsResult == TPCANStatus.PCAN_ERROR_OK ? PCANStatus.OK : PCANStatus.Error;
-            }
-            catch (Exception)
-            {
-                return PCANStatus.Error;
+                    _CANMsgExt.ID = (uint)canID;
+                    _CANMsgExt.LEN = (byte)DLC;
+                    _CANMsgExt.DATA = tmp;
+
+                    lock (thread_lock)
+                    {
+                        stsResult = PCANBasic.Write(device, ref _CANMsgExt);
+                    }
+                    Thread.SpinWait(100);
+                    return stsResult == TPCANStatus.PCAN_ERROR_OK ? PCANStatus.OK : PCANStatus.Error;
+                }
+                catch (Exception)
+                {
+                    Thread.SpinWait(6000);
+                    return PCANStatus.Error;
+                }
             }
         }
+
         public PCANStatus RetrieveFrame(out TPCANMsg CANMsg, out TPCANTimestamp CANTimeStamp)
         {
             TPCANStatus stsResult = TPCANStatus.PCAN_ERROR_UNKNOWN;
@@ -272,12 +311,7 @@ namespace PCANDevice
                 return PCANStatus.Error;
             }
         }
-
-        public int IsConnected()
-        {
-            return device;
-        }
-
+  
         public void AddReceiveCallback(PCANCallback callback)
         {
             receiveCallbacks.Add(callback);
